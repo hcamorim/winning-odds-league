@@ -2,6 +2,8 @@ import os
 import requests
 from dotenv import load_dotenv
 import json
+import time
+from itertools import islice
 
 # Load environment variables from .env file
 load_dotenv()
@@ -42,20 +44,40 @@ def get_account_info():
         return
 
     account_info = []
-    for summoner_id in summoner_ids:
-        url = SUMMONER_URL_TEMPLATE.format(summonerId=summoner_id)
-        response = requests.get(url, headers=headers)
-        if response.status_code == 200:
-            summoner_data = response.json()
-            account_info.append(summoner_data)
-            print(f"Fetched account info for Summoner ID: {summoner_id}")
-        else:
-            print(f"Failed to fetch account info for {summoner_id}: {response.status_code} - {response.text}")
+    batch_size = 100
+    delay_seconds = 120  # 2 minutes
 
-    # Save account info to a file
-    with open('challenger_account_info.json', 'w') as f:
-        json.dump(account_info, f, indent=4)
-    print("Account information saved to challenger_account_info.json")
+    # Helper generator to create batches
+    def batched(iterable, n):
+        it = iter(iterable)
+        while True:
+            batch = list(islice(it, n))
+            if not batch:
+                break
+            yield batch
+
+    total_batches = (len(summoner_ids) + batch_size - 1) // batch_size
+    for batch_num, batch in enumerate(batched(summoner_ids, batch_size), start=1):
+        print(f"Processing batch {batch_num} of {total_batches} ({len(batch)} summoner IDs)...")
+        for summoner_id in batch:
+            url = SUMMONER_URL_TEMPLATE.format(summonerId=summoner_id)
+            response = requests.get(url, headers=headers)
+            if response.status_code == 200:
+                summoner_data = response.json()
+                account_info.append(summoner_data)
+            else:
+                print(f"Failed to fetch account info for {summoner_id}: {response.status_code} - {response.text}")
+        
+        # Save current batch's account info
+        with open(f'challenger_account_info_batch_{batch_num}.json', 'w') as f:
+            json.dump(account_info, f, indent=4)
+        print(f"Batch {batch_num} completed and saved to challenger_account_info_batch_{batch_num}.json")
+
+        if batch_num < total_batches:
+            print(f"Processed {batch_num * batch_size} calls. Waiting for 2 minutes to respect rate limits...\n")
+            time.sleep(delay_seconds)
+    
+    print("All batches processed successfully.")
 
 if __name__ == "__main__":
     choice = input("Choose an action:\n1. Fetch Challenger Summoner IDs\n2. Fetch Account Info\nEnter 1 or 2: ")

@@ -29,3 +29,4 @@ logs/
 # JSON files
 challenger_summoner_ids.json
 challenger_account_info.json
+challenger_account_info_batch_*.json
