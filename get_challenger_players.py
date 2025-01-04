@@ -21,7 +21,10 @@ def get_challenger_players():
     response = requests.get(URL, headers=headers)
     if response.status_code == 200:
         data = response.json()
-        print(json.dumps(data, indent=4))  # Pretty-print the JSON data
+        # Save JSON to a file
+        with open('challenger_players.json', 'w') as f:
+            json.dump(data, f, indent=4)
+        print("JSON data saved to challenger_players.json")
     else:
         print(f"Failed to fetch data: {response.status_code} - {response.text}")
 
