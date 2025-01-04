@@ -7,10 +7,11 @@ import json
 load_dotenv()
 API_KEY = os.getenv('RIOT_API_KEY')
 
-# Riot API endpoint for Challenger League (Solo Queue) in EUW
+# Riot API endpoints
 REGION = 'euw1'
 QUEUE = 'RANKED_SOLO_5x5'
-URL = f"https://{REGION}.api.riotgames.com/lol/league/v4/challengerleagues/by-queue/{QUEUE}"
+CHALLENGER_URL = f"https://{REGION}.api.riotgames.com/lol/league/v4/challengerleagues/by-queue/{QUEUE}"
+SUMMONER_URL_TEMPLATE = f"https://{REGION}.api.riotgames.com/lol/summoner/v4/summoners/{{summonerId}}"
 
 # Headers with API key
 headers = {
@@ -18,15 +19,49 @@ headers = {
 }
 
 def get_challenger_players():
-    response = requests.get(URL, headers=headers)
+    response = requests.get(CHALLENGER_URL, headers=headers)
     if response.status_code == 200:
         data = response.json()
-        # Save JSON to a file
-        with open('challenger_players.json', 'w') as f:
-            json.dump(data, f, indent=4)
-        print("JSON data saved to challenger_players.json")
+        entries = data.get('entries', [])
+        print(f"Total Challenger Players: {len(entries)}\n")
+        summoner_ids = [player['summonerId'] for player in entries]
+        # Save summoner IDs to a file
+        with open('challenger_summoner_ids.json', 'w') as f:
+            json.dump(summoner_ids, f, indent=4)
+        print("Summoner IDs saved to challenger_summoner_ids.json")
     else:
-        print(f"Failed to fetch data: {response.status_code} - {response.text}")
+        print(f"Failed to fetch Challenger data: {response.status_code} - {response.text}")
+
+def get_account_info():
+    # Load summoner IDs from the file
+    try:
+        with open('challenger_summoner_ids.json', 'r') as f:
+            summoner_ids = json.load(f)
+    except FileNotFoundError:
+        print("summoner_ids file not found. Please run get_challenger_players() first.")
+        return
+
+    account_info = []
+    for summoner_id in summoner_ids:
+        url = SUMMONER_URL_TEMPLATE.format(summonerId=summoner_id)
+        response = requests.get(url, headers=headers)
+        if response.status_code == 200:
+            summoner_data = response.json()
+            account_info.append(summoner_data)
+            print(f"Fetched account info for Summoner ID: {summoner_id}")
+        else:
+            print(f"Failed to fetch account info for {summoner_id}: {response.status_code} - {response.text}")
+
+    # Save account info to a file
+    with open('challenger_account_info.json', 'w') as f:
+        json.dump(account_info, f, indent=4)
+    print("Account information saved to challenger_account_info.json")
 
 if __name__ == "__main__":
-    get_challenger_players()
+    choice = input("Choose an action:\n1. Fetch Challenger Summoner IDs\n2. Fetch Account Info\nEnter 1 or 2: ")
+    if choice == '1':
+        get_challenger_players()
+    elif choice == '2':
+        get_account_info()
+    else:
+        print("Invalid choice. Please enter 1 or 2.")

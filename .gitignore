@@ -25,3 +25,7 @@ logs/
 # IDE files
 *.sublime-project
 *.sublime-workspace
+
+# JSON files
+challenger_summoner_ids.json
+challenger_account_info.json
