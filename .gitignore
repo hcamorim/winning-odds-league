@@ -1,0 +1,27 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environment
+venv/
+ENV/
+env/
+.env
+
+# VS Code settings
+.vscode/
+
+# Azure Function specific
+local.settings.json
+
+# Logs
+logs/
+*.log
+
+# OS files
+.DS_Store
+
+# IDE files
+*.sublime-project
+*.sublime-workspace
