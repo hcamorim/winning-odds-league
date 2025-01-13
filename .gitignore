@@ -8,6 +8,7 @@ venv/
 ENV/
 env/
 .env
+.venv/
 
 # VS Code settings
 .vscode/
@@ -19,8 +20,14 @@ local.settings.json
 logs/
 *.log
 
-# OS files
+# macOS
 .DS_Store
+.AppleDouble
+.LSOverride
+
+# Windows
+Thumbs.db
+ehthumbs.db
 
 # IDE files
 *.sublime-project
