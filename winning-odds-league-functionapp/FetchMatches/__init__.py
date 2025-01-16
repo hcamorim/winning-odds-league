@@ -13,8 +13,8 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
         credential = DefaultAzureCredential()
         secret_client = SecretClient(vault_url=vault_url, credential=credential)
 
-        sql_user = secret_client.get_secret("SQLUser").value
-        sql_password = secret_client.get_secret("SQLPassword").value
+        sql_user = secret_client.get_secret("FunctionAppSqlUser").value
+        sql_password = secret_client.get_secret("FunctionAppSqlPassword").value
 
         # Retrieve server and database from environment variables
         sql_server = os.getenv("SQL_SERVER", "myriotdataserver.database.windows.net")
@@ -54,9 +54,9 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
 
             # Insert sample data
             sample_data = [
-                (001, 'Player1', 15),
-                (002, 'Player2', 30),
-                (003, 'Player2', 50)
+                (1, 'Player1', 15),
+                (2, 'Player2', 30),
+                (3, 'Player2', 50)
             ]
             for match_id, player_name, score in sample_data:
                 cursor.execute(
