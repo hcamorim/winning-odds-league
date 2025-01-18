@@ -55,35 +55,40 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
         riot_api_key = secret_client.get_secret("RiotApiKey").value
         headers = {"X-Riot-Token": riot_api_key}
 
-        # Regions to fetch
+        # Regions and ranks to fetch
         regions = ["euw1", "eun1", "kr", "na1"]
+        ranks = [
+            ("challenger", "Challenger"),
+            ("grandmaster", "Grandmaster"),
+        ]
+
+        # Fetch summoner data from Riot API
         summoners = []
-
-        # Fetch Challenger summoners
-        base_url = "https://{region}.api.riotgames.com/lol/league/v4/challengerleagues/by-queue/RANKED_SOLO_5x5"
+        base_url = "https://{region}.api.riotgames.com/lol/league/v4/{rank}leagues/by-queue/RANKED_SOLO_5x5"
         for region in regions:
-            url = base_url.format(region=region)
-            response = requests.get(url, headers=headers)
+            for api_rank, rank_label in ranks:
+                url = base_url.format(region=region, rank=api_rank)
+                response = requests.get(url, headers=headers)
 
-            if response.status_code == 429:  # Rate limit exceeded
-                retry_after = int(response.headers.get("Retry-After", 60))
-                logging.warning(f"Rate limit exceeded. Retrying after {retry_after} seconds...")
-                time.sleep(retry_after)
-                continue
+                if response.status_code == 429:  # Rate limit exceeded
+                    retry_after = int(response.headers.get("Retry-After", 60))
+                    logging.warning(f"Rate limit exceeded. Retrying after {retry_after} seconds...")
+                    time.sleep(retry_after)
+                    continue
 
-            if response.status_code != 200:
-                raise Exception(f"Failed to fetch Challenger summoners for {region}: {response.text}")
+                if response.status_code != 200:
+                    raise Exception(f"Failed to fetch {rank_label} summoners for {region}: {response.text}")
 
-            challenger_data = response.json()
-            if "entries" not in challenger_data:
-                raise Exception(f"Unexpected API response format: {challenger_data}")
+                league_data = response.json()
+                if "entries" not in league_data:
+                    raise Exception(f"Unexpected API response format: {league_data}")
 
-            for entry in challenger_data["entries"]:
-                summoners.append({
-                    "summonerID": entry["summonerId"],
-                    "rank": "Challenger",
-                    "region": region
-                })
+                for entry in league_data["entries"]:
+                    summoners.append({
+                        "summonerID": entry["summonerId"],
+                        "rank": rank_label,
+                        "region": region
+                    })
 
         # Ensure summoners are fetched
         if not summoners:
@@ -94,6 +99,7 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
         with connect_to_database(connection_string) as conn:
             cursor = conn.cursor()
 
+            # Ensure Summoners table exists
             create_table_sql = """
             IF NOT EXISTS (
                 SELECT *
@@ -112,24 +118,37 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
             """
             cursor.execute(create_table_sql)
 
-            # Insert summoners
+            # Merge summoners into the table
             for summoner in summoners:
                 cursor.execute(
                     """
-                    IF NOT EXISTS (
-                        SELECT 1 FROM Summoners
-                        WHERE SummonerID = ? AND Region = ?
-                    )
-                    BEGIN
-                        INSERT INTO Summoners (SummonerID, Rank, Region)
-                        VALUES (?, ?, ?)
-                    END
+                    MERGE INTO Summoners AS Target
+                    USING (SELECT ? AS SummonerID, ? AS Rank, ? AS Region) AS Source
+                    ON Target.SummonerID = Source.SummonerID AND Target.Region = Source.Region
+                    WHEN MATCHED THEN
+                        UPDATE SET Rank = Source.Rank
+                    WHEN NOT MATCHED THEN
+                        INSERT (SummonerID, Rank, Region)
+                        VALUES (Source.SummonerID, Source.Rank, Source.Region);
                     """,
-                    (summoner["summonerID"], summoner["region"],  # For the IF NOT EXISTS check
-                     summoner["summonerID"], summoner["rank"], summoner["region"])  # For the INSERT
+                    summoner["summonerID"], summoner["rank"], summoner["region"]
                 )
 
-        return func.HttpResponse("Successfully fetched and stored Challenger summoners!", status_code=200)
+            # Remove outdated entries
+            current_ids = [(s["summonerID"], s["region"]) for s in summoners]
+            cursor.executemany(
+                """
+                DELETE FROM Summoners
+                WHERE (SummonerID, Region) NOT IN (
+                    SELECT SummonerID, Region FROM (
+                        VALUES (?, ?)
+                    ) AS Current(SummonerID, Region)
+                )
+                """,
+                current_ids
+            )
+
+        return func.HttpResponse("Summoners table updated successfully!", status_code=200)
 
     except Exception as e:
         logging.error(f"Error in FetchChallengerSummoners: {e}")
