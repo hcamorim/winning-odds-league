@@ -24,7 +24,7 @@ def connect_to_database(connection_string, retries=3, delay=5):
                 raise
 
 def main(req: func.HttpRequest) -> func.HttpResponse:
-    logging.info('FetchChallengerSummoners function processing a request.')
+    logging.info('FetchTopSummoners function processing a request.')
 
     try:
         # Retrieve SQL credentials from Key Vault
@@ -99,7 +99,7 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
         with connect_to_database(connection_string) as conn:
             cursor = conn.cursor()
 
-            # Ensure Summoners table exists
+            # Ensure the Summoners table exists
             create_table_sql = """
             IF NOT EXISTS (
                 SELECT *
@@ -118,38 +118,50 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
             """
             cursor.execute(create_table_sql)
 
-            # Merge summoners into the table
-            for summoner in summoners:
-                cursor.execute(
-                    """
-                    MERGE INTO Summoners AS Target
-                    USING (SELECT ? AS SummonerID, ? AS Rank, ? AS Region) AS Source
-                    ON Target.SummonerID = Source.SummonerID AND Target.Region = Source.Region
-                    WHEN MATCHED THEN
-                        UPDATE SET Rank = Source.Rank
-                    WHEN NOT MATCHED THEN
-                        INSERT (SummonerID, Rank, Region)
-                        VALUES (Source.SummonerID, Source.Rank, Source.Region);
-                    """,
-                    summoner["summonerID"], summoner["rank"], summoner["region"]
-                )
+            # Create a temporary table for new data
+            cursor.execute("DROP TABLE IF EXISTS #TempSummoners;")
+            cursor.execute("""
+            CREATE TABLE #TempSummoners (
+                SummonerID VARCHAR(100) NOT NULL,
+                Rank VARCHAR(50) NOT NULL,
+                Region VARCHAR(10) NOT NULL
+            );
+            """)
 
-            # Remove outdated entries
-            current_ids = [(s["summonerID"], s["region"]) for s in summoners]
+            # Insert new data into the temporary table
             cursor.executemany(
                 """
-                DELETE FROM Summoners
-                WHERE (SummonerID, Region) NOT IN (
-                    SELECT SummonerID, Region FROM (
-                        VALUES (?, ?)
-                    ) AS Current(SummonerID, Region)
-                )
+                INSERT INTO #TempSummoners (SummonerID, Rank, Region)
+                VALUES (?, ?, ?);
                 """,
-                current_ids
+                [(s["summonerID"], s["rank"], s["region"]) for s in summoners]
             )
+
+            # Merge data into the main table
+            cursor.execute("""
+            MERGE INTO Summoners AS Target
+            USING #TempSummoners AS Source
+            ON Target.SummonerID = Source.SummonerID AND Target.Region = Source.Region
+            WHEN MATCHED THEN
+                UPDATE SET Rank = Source.Rank
+            WHEN NOT MATCHED THEN
+                INSERT (SummonerID, Rank, Region)
+                VALUES (Source.SummonerID, Source.Rank, Source.Region);
+            """)
+
+            # Remove outdated entries
+            cursor.execute("""
+            DELETE FROM Summoners
+            WHERE NOT EXISTS (
+                SELECT 1
+                FROM #TempSummoners AS Temp
+                WHERE Summoners.SummonerID = Temp.SummonerID
+                AND Summoners.Region = Temp.Region
+            );
+            """)
 
         return func.HttpResponse("Summoners table updated successfully!", status_code=200)
 
     except Exception as e:
-        logging.error(f"Error in FetchChallengerSummoners: {e}")
+        logging.error(f"Error in FetchTopSummoners: {e}")
         return func.HttpResponse(f"Error occurred: {str(e)}", status_code=500)
